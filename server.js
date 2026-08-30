@@ -6,6 +6,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 
 import { user } from './Routing/user.js';
+import { city } from './Routing/city.js';
 
 mongoose.connect(process.env.MONGO_URL)
     .then(() => {
@@ -22,3 +23,4 @@ app.get('/', (req, res) => {
 
 
 app.use(user);
+app.use(city);
