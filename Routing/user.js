@@ -57,4 +57,28 @@ user.get('/all-users', async(req, res) => {
     }
 });
 
+user.get('/user-by-level/:usl', async(req, res) => {
+    try {
+        const user_level = Number(req.params.usl);
+
+        const user_bylevel = await User.find({ level: user_level  }).select('-password');
+
+        if (!user_bylevel || user_bylevel.length === 0){
+            return res.status(404).json({
+                message: "No user found by this level"
+            })
+        }
+
+        return res.status(200).json({
+            user_bylevel
+        });
+    }
+    catch(err){
+        return res.status(500).json({
+            message: "oops.. something went wrong",
+            error: err
+        })
+    }
+});
+
 export default user;
