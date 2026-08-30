@@ -1,126 +1,338 @@
-# Civic-Raid
+<h1 align="center">Civic-Raid</h1>
 
-A gamified civic engagement API built with **Node.js/Express** and **Rust**. Users can report city road problems, propose solutions, upvote solutions, and earn XP/levels through community participation.
+<p align="center">
+  <b>A Gamified Civic Engagement API</b><br>
+  <i>Node.js + Express + MongoDB + Rust</i>
+</p>
 
-## Tech Stack
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" />
+  <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" />
+  <img src="https://img.shields.io/badge/Express-000000?style=for-the-badge" />
+</p>
 
-| Layer | Technology |
-|-------|-----------|
-| API Server | Node.js + Express |
-| Database | MongoDB + Mongoose |
-| Gamification Engine | Rust (stdin/stdout JSON IPC) |
-| Authentication | JWT + bcrypt |
+---
 
-## How Node.js and Rust Talk to Each Other
+## What is Civic-Raid?
+
+Civic-Raid is a **REST API** where citizens report road problems in their cities, propose solutions, and the community upvotes the best ones. The twist? **Gamification powered by Rust** — every upvote earns the solution author **10 XP**, and every **100 XP** unlocks a new level.
+
+The key highlight is the **hybrid architecture**: Node.js handles HTTP and database operations, while a compiled **Rust binary** handles all gamification math through stdin/stdout JSON communication.
+
+---
+
+## Why Rust + Node.js?
+
+| Concern | Handled By | Why |
+|---------|-----------|-----|
+| HTTP Routes | Node.js + Express | Fast development, rich ecosystem |
+| Database | MongoDB + Mongoose | Flexible schema, easy prototyping |
+| Gamification Math | Rust Binary | Blazing fast, memory safe, zero runtime cost |
+| Authentication | JWT + bcrypt | Industry standard, secure |
+
+> Rust is called as a **child process** via stdin/stdout — no FFI, no native bindings, just clean JSON IPC.
+
+---
+
+## Architecture
 
 ```
-Client  ──HTTP──>  Node.js  ──stdin──>  Rust Binary
-                         <──stdout──
+                        ┌─────────────────────────────────────────┐
+                        │              CLIENT (Postman/cURL)       │
+                        └──────────────────┬──────────────────────┘
+                                           │ HTTP Request
+                                           ▼
+                        ┌─────────────────────────────────────────┐
+                        │         NODE.JS / EXPRESS SERVER         │
+                        │                                         │
+                        │  ┌─────────┐  ┌─────────┐  ┌────────┐  │
+                        │  │  Auth   │  │ Routes  │  │Mongoose│  │
+                        │  │ (JWT)   │  │(REST)   │  │ (DB)   │  │
+                        │  └────┬────┘  └────┬────┘  └───┬────┘  │
+                        │       │            │           │        │
+                        └───────┼────────────┼───────────┼────────┘
+                                │            │           │
+                                ▼            ▼           ▼
+                           ┌────────┐  ┌──────────┐  ┌─────────┐
+                           │bcrypt │  │callRust()│  │MongoDB  │
+                           │hashing│  │  spawn() │  │         │
+                           └────────┘  └────┬─────┘  └─────────┘
+                                            │ stdin (JSON)
+                                            ▼
+                        ┌─────────────────────────────────────────┐
+                        │           RUST GAMIFICATION ENGINE       │
+                        │                                         │
+                        │  stdin ──▶ Parse JSON ──▶ Calculate     │
+                        │                          XP / Level     │
+                        │           Serialize ──▶ stdout          │
+                        └─────────────────────────────────────────┘
 ```
 
-1. Node.js spawns the Rust binary as a child process
-2. Node.js writes a JSON payload to Rust's **stdin**
-3. Rust reads from stdin, performs calculations (XP, level)
-4. Rust writes the result JSON to **stdout**
-5. Node.js reads stdout, parses the result, updates MongoDB
+---
 
-This approach keeps Rust focused on pure computation while Node.js handles HTTP and database operations.
+## How Node.js Talks to Rust (Step by Step)
+
+This is the core architectural decision in this project. Here's exactly what happens:
+
+### Step 1: Node.js Spawns Rust Binary
+```javascript
+const child = spawn('target/release/Civic-Raid.exe', [], {
+    stdio: ['pipe', 'pipe', 'pipe']
+});
+```
+
+### Step 2: Node.js Sends JSON to Rust's stdin
+```javascript
+child.stdin.write(JSON.stringify({
+    action: "upvote",
+    user: { id: "abc123", xp: 50, level: 1, impact_score: 3 },
+    solution_count: 5
+}));
+child.stdin.end();
+```
+
+### Step 3: Rust Reads stdin, Calculates, Writes to stdout
+```rust
+// Rust reads from stdin
+io::stdin().read_to_string(&mut input);
+
+// Parses the JSON
+let mut request: ActionRequest = serde_json::from_str(&input);
+
+// Calculates new XP and level
+user.xp += 10;
+user.level = (user.xp / 100) + 1;
+
+// Writes result to stdout
+println!("{}", serde_json::to_string(&result));
+```
+
+### Step 4: Node.js Reads Rust's stdout
+```javascript
+child.stdout.on('data', (data) => {
+    stdout += data.toString();
+});
+// stdout = '{"id":"abc123","xp":60,"level":1,"impact_score":3}'
+```
+
+### Step 5: Node.js Updates MongoDB
+```javascript
+await User.findByIdAndUpdate(id, { XP: result.xp, level: result.level });
+```
+
+---
 
 ## Project Structure
 
 ```
 Civic-Raid/
-├── Models/
-│   ├── citySchema.js        # City/road problem schema
-│   ├── solutionSchema.js    # Solution schema with upvote tracking
-│   └── userSchema.js        # User schema with XP, level, impact_score
-├── Routing/
-│   ├── city.js              # City CRUD routes
-│   ├── sol.js               # Solution CRUD routes
-│   └── user.js              # Auth (signup/login) + user routes
+│
+├── Models/                    # Mongoose schemas (database models)
+│   ├── citySchema.js          # City + road problem data
+│   ├── solutionSchema.js      # Solutions with upvote tracking
+│   └── userSchema.js          # Users with XP, level, impact_score
+│
+├── Routing/                   # Express route handlers
+│   ├── city.js                # POST/GET city problems
+│   ├── sol.js                 # POST/GET/PUT solutions
+│   └── user.js                # Signup, login, user queries
+│
 ├── Middleware/
-│   └── auth.js              # JWT authentication middleware
+│   └── auth.js                # JWT token verification
+│
 ├── src/
-│   └── main.rs              # Rust gamification engine
-├── server.js                # Express server + Rust IPC helper
-├── Cargo.toml               # Rust dependencies
-├── package.json             # Node.js dependencies
-└── .env                     # Environment variables (MONGO_URL, JWT_SECRET)
+│   └── main.rs                # Rust gamification engine
+│
+├── server.js                  # Express app + Rust IPC bridge
+├── Cargo.toml                 # Rust dependencies (serde, serde_json)
+├── package.json               # Node dependencies (express, mongoose, jwt, bcrypt)
+└── .env                       # MONGO_URL, JWT_SECRET
 ```
+
+---
 
 ## API Endpoints
 
-### Auth
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/signup` | Create account (returns JWT) |
-| POST | `/login` | Login (returns JWT) |
+### Authentication
+
+| Method | Route | Body | Response |
+|--------|-------|------|----------|
+| `POST` | `/signup` | `{ username, email, password, contact_number }` | `{ token, user }` |
+| `POST` | `/login` | `{ email, password }` | `{ token, user }` |
 
 ### Users
+
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/all-users` | List all users |
-| GET | `/user-by-level/:usl` | Filter users by level |
+| `GET` | `/all-users` | List all users |
+| `GET` | `/user-by-level/:usl` | Filter by level |
 
 ### Cities
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/city-details` | Report a road problem |
-| GET | `/all-cities` | List all reported cities |
-| GET | `/city-search?city_name=&road_name=` | Search by city/road |
+
+| Method | Route | Body / Query | Description |
+|--------|-------|-------------|-------------|
+| `POST` | `/city-details` | `{ user_id, city_name, state, country, road_details, problem, threat }` | Report a problem |
+| `GET` | `/all-cities` | — | List all |
+| `GET` | `/city-search` | `?city_name=&road_name=` | Search |
 
 ### Solutions
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/solution` | Submit a solution |
-| GET | `/all-solutions` | List all solutions |
-| GET | `/solution-search?city_id=` | Search solutions by city |
-| PUT | `/solution-update/:sid` | Update a solution |
+
+| Method | Route | Body / Query | Description |
+|--------|-------|-------------|-------------|
+| `POST` | `/solution` | `{ user_id, city_id, solution, expected_cost }` | Submit solution |
+| `GET` | `/all-solutions` | — | List all |
+| `GET` | `/solution-search` | `?city_id=` | Filter by city |
+| `PUT` | `/solution-update/:sid` | `{ solution, expected_cost }` | Update |
 
 ### Gamification
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/upvote/:solutionId` | Upvote a solution (+10 XP via Rust) |
-| POST | `/impact/:userId` | Recalculate impact score via Rust |
-| GET | `/leaderboard` | Top 10 users by XP |
 
-## Gamification Rules
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/upvote/:solutionId` | Yes | Upvote → Rust adds 10 XP |
+| `POST` | `/impact/:userId` | Yes | Recalculate impact score |
+| `GET` | `/leaderboard` | No | Top 10 users by XP |
 
-| Action | Effect |
-|--------|--------|
-| Upvote a solution | Author gains 10 XP |
-| Every 100 XP | Author levels up |
-| Each solution authored | +1 impact_score |
-| Duplicate upvote | Blocked (same user can't upvote twice) |
-| Self upvote | Blocked |
+---
+
+## Request & Response Examples
+
+### Signup
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"username":"john","email":"john@test.com","password":"123456","contact_number":"9876543210"}'
+```
+```json
+{
+  "message": "User created successfully",
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "user": {
+    "id": "6654a1b2c3d4e5f6a7b8c9d0",
+    "username": "john",
+    "email": "john@test.com",
+    "XP": 0,
+    "level": 1,
+    "impact_score": 0
+  }
+}
+```
+
+### Upvote (Protected Route)
+```bash
+curl -X POST http://localhost:3000/upvote/6654a1b2c3d4e5f6a7b8c9d0 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+```json
+{
+  "message": "Upvote processed",
+  "upvotes": 5,
+  "user": {
+    "XP": 60,
+    "level": 1
+  },
+  "rust_result": {
+    "id": "6654a1b2c3d4e5f6a7b8c9d0",
+    "xp": 60,
+    "level": 1,
+    "impact_score": 3
+  }
+}
+```
+
+### Leaderboard
+```bash
+curl http://localhost:3000/leaderboard
+```
+```json
+{
+  "leaderboard": [
+    { "rank": 1, "username": "alice", "XP": 250, "level": 3, "impact_score": 12 },
+    { "rank": 2, "username": "bob",   "XP": 180, "level": 2, "impact_score": 8 },
+    { "rank": 3, "username": "carol", "XP": 120, "level": 2, "impact_score": 5 }
+  ]
+}
+```
+
+---
+
+## Rust Gamification Engine
+
+The Rust binary in `src/main.rs` handles two actions:
+
+### Upvote Action
+```
+Input:  { "action": "upvote", "user": { "xp": 50, ... } }
+Logic:  xp += 10; level = (xp / 100) + 1;
+Output: { "xp": 60, "level": 1, ... }
+```
+
+### Impact Action
+```
+Input:  { "action": "impact", "solution_count": 7 }
+Logic:  impact_score = solution_count;
+Output: { "impact_score": 7, ... }
+```
+
+### Level Thresholds
+
+| XP Range | Level |
+|----------|-------|
+| 0 - 99 | 1 |
+| 100 - 199 | 2 |
+| 200 - 299 | 3 |
+| 300 - 399 | 4 |
+| ... | ... |
+
+---
 
 ## Setup
 
 ### Prerequisites
-- Node.js (v18+)
-- Rust toolchain
-- MongoDB instance
+- [Node.js](https://nodejs.org/) v18+
+- [Rust](https://www.rust-lang.org/tools/install) toolchain
+- [MongoDB](https://www.mongodb.com/) instance (local or Atlas)
 
-### Install Dependencies
+### 1. Clone & Install
 ```bash
-# Node.js
+git clone https://github.com/Lavish09-Mehra/Civic-Road-APi.git
+cd Civic-Road-APi
 npm install
+```
 
-# Rust
+### 2. Build Rust Binary
+```bash
 cargo build --release
 ```
 
-### Environment Variables
-Create a `.env` file:
-```
+### 3. Configure Environment
+Create `.env` file:
+```env
 MONGO_URL=mongodb://localhost:27017/civic-raid
-JWT_SECRET=your-secret-key-here
+JWT_SECRET=your-super-secret-key
 ```
 
-### Run
+### 4. Start Server
 ```bash
 npm start
+# Server listening at http://localhost:3000
 ```
 
-## If you like this project, just star and follow my GitHub
-https://github.com/Lavish09-Mehra
+### 5. Test the Rust Binary Directly
+```bash
+echo '{"action":"upvote","user":{"id":"test","xp":95,"level":1,"impact_score":0}}' | ./target/release/Civic-Raid
+# Output: {"id":"test","xp":105,"level":2,"impact_score":0}
+```
+
+---
+
+## License
+
+ISC
+
+---
+
+<p align="center">
+  If you like this project, just <b>star</b> and <b>follow</b> my GitHub<br>
+  <a href="https://github.com/Lavish09-Mehra">github.com/Lavish09-Mehra</a>
+</p>
