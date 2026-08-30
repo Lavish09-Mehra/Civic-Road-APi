@@ -22,7 +22,18 @@ export const solSchema = new mongoose.Schema({
     expected_labour: {
         type: Number,
         default: 1,
-    }    
+    },
+    // Array of user IDs who upvoted this solution
+    // Prevents duplicate upvotes from the same user
+    upvoted_by: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    // Running count of total upvotes (denormalized for fast leaderboard queries)
+    upvote_count: {
+        type: Number,
+        default: 0
+    }
 
 }, { timestamps: true });
 

@@ -1,4 +1,24 @@
-/target
+# Dependencies
 node_modules/
-package-lock.json
+
+# Build artifacts
+/target
+/dist
+
+# Environment variables (contains secrets)
 .env
+
+# Lock files
+package-lock.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
